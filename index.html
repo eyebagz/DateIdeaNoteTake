@@ -1,0 +1,339 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#e9ece8">
+
+    <title>Our Date Ideas</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+    >
+
+    <!-- Stylesheet and JavaScript -->
+    <link rel="stylesheet" href="css/style.css">
+    <script defer src="js/app.js"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+
+        <!-- Header -->
+        <header class="topbar">
+            <a
+                class="brand"
+                href="#top"
+                aria-label="Our Date Journal home"
+            >
+                <span class="brand-sticker" aria-hidden="true">ODI</span>
+
+                <span>
+                    <strong>OUR</strong>
+                    <em>DATE IDEAS</em>
+                </span>
+            </a>
+
+            <div class="header-tools">
+                <span class="header-note">
+                    Emily and Ardell's Date Ideas
+                </span>
+            </div>
+        </header>
+
+        <!-- Introduction -->
+        <section class="intro" id="top">
+            <div class="intro-copy">
+                <p class="eyebrow">DATE PLANNER</p>
+
+                <h1>
+                    We will be doing<br>
+                    <strong>more dates!</strong><br>
+                    No matter what.
+                </h1>
+
+                <p class="intro-text">
+                    If we ever have an idea for a date,
+                    we should try and write it down here so we can remember it later.
+                </p>
+
+                <button
+                    class="button button-primary"
+                    id="openAdd"
+                    type="button"
+                >
+                    ＋ Yoohoo! Add a date idea here..
+                </button>
+            </div>
+
+            <!-- Small decorative planning card -->
+            <div class="note-card" aria-label="A reminder to make time for good plans">
+                <span class="tape"></span>
+                <span class="note-index">YOO HOO OVER HERE!</span>
+                <p>GOOD DATES<br>START HERE &gt;.&lt;</p>
+                <span class="note-rule" aria-hidden="true"></span>
+                <span class="note-caption">IDEAS THAT WE BOTH WANT TO SPEND OUR TIME ON</span>
+            </div>
+        </section>
+
+        <!-- Dates To Be Completed -->
+        <section
+            class="list-section"
+            aria-labelledby="todoHeading"
+        >
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">BE THERE OR BE SQUARE</p>
+
+                    <h2 id="todoHeading">Dates We Will Complete</h2>
+                </div>
+
+                <span class="count" id="todoCount">0 ideas</span>
+            </div>
+
+            <div class="idea-grid" id="todoList"></div>
+        </section>
+
+        <!-- Completed Dates -->
+        <section
+            class="list-section completed-section"
+            aria-labelledby="doneHeading"
+        >
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">EASY PEASY LEMON SQUEAZY</p>
+
+                    <h2 id="doneHeading">Completed Dates</h2>
+                </div>
+
+                <span class="count" id="doneCount">0 dates</span>
+            </div>
+
+            <div class="idea-grid" id="doneList"></div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="page-footer">
+            A small list of dates we will be indulging in created by the KING (Ardell) and QUEEN (Emily).
+        </footer>
+
+    </main>
+
+    <!-- Add / Edit Date Dialog -->
+    <dialog id="ideaDialog" class="paper-dialog">
+        <form id="ideaForm">
+
+            <div class="dialog-heading">
+                <div>
+                    <p class="eyebrow">DATE DETAILS</p>
+                    <h2 id="dialogTitle">Add a date idea</h2>
+                </div>
+
+                <button
+                    type="button"
+                    class="close-button"
+                    id="closeDialog"
+                    aria-label="Close"
+                >
+                    ×
+                </button>
+            </div>
+
+            <input type="hidden" id="ideaId">
+
+            <!-- Date Title -->
+            <label for="ideaTitle">
+                Date title
+                <span aria-hidden="true" class="required">*</span>
+            </label>
+
+            <input
+                id="ideaTitle"
+                maxlength="120"
+                required
+                placeholder="e.g. Try a new ramen place"
+            >
+
+            <!-- Date Information -->
+            <div class="form-grid">
+
+                <div class="field">
+                    <label for="ideaLocation">
+                        Location
+                        <span class="optional">(optional)</span>
+                    </label>
+
+                    <input
+                        id="ideaLocation"
+                        maxlength="180"
+                        placeholder="Park, restaurant, cinema..."
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="ideaCost">
+                        Estimated cost (£)
+                        <span class="optional">(optional)</span>
+                    </label>
+
+                    <input
+                        id="ideaCost"
+                        type="number"
+                        min="0"
+                        max="100000"
+                        step="0.01"
+                        inputmode="decimal"
+                        placeholder="e.g. 25.00"
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="ideaDate">
+                        Planned date
+                        <span class="optional">(optional)</span>
+                    </label>
+
+                    <input
+                        id="ideaDate"
+                        type="date"
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="ideaTime">
+                        Start time
+                        <span class="optional">(optional)</span>
+                    </label>
+
+                    <input
+                        id="ideaTime"
+                        type="time"
+                    >
+                </div>
+
+            </div>
+
+            <!-- Description -->
+            <label for="ideaDescription">
+                Description
+                <span class="optional">(optional)</span>
+            </label>
+
+            <textarea
+                id="ideaDescription"
+                rows="3"
+                maxlength="1000"
+                placeholder="Add a few details about the plan..."
+            ></textarea>
+
+            <!-- Things To Bring -->
+            <label for="ideaBring">
+                Things to bring
+                <span class="optional">(optional)</span>
+            </label>
+
+            <textarea
+                id="ideaBring"
+                rows="2"
+                maxlength="600"
+                placeholder="Anything to bring along..."
+            ></textarea>
+
+            <!-- Notes -->
+            <label for="ideaNotes">
+                Notes
+                <span class="optional">(optional)</span>
+            </label>
+
+            <textarea
+                id="ideaNotes"
+                rows="2"
+                maxlength="1000"
+                placeholder="Reminders or details to remember…"
+            ></textarea>
+
+            <!-- Form Actions -->
+            <div class="dialog-actions">
+                <button
+                    type="button"
+                    class="button button-quiet"
+                    id="cancelDialog"
+                >
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="button button-primary"
+                >
+                    Save idea
+                </button>
+            </div>
+
+        </form>
+    </dialog>
+
+    <!-- Date Details Dialog -->
+    <dialog
+        id="detailDialog"
+        class="paper-dialog detail-dialog"
+    >
+        <div class="dialog-heading">
+            <div>
+                <p class="eyebrow">DATE DETAILS</p>
+                <h2 id="detailTitle">Date details</h2>
+            </div>
+
+            <button
+                type="button"
+                class="close-button"
+                id="closeDetails"
+                aria-label="Close"
+            >
+                ×
+            </button>
+        </div>
+
+        <div
+            id="detailContent"
+            class="detail-content"
+        ></div>
+
+        <div class="dialog-actions">
+            <button
+                type="button"
+                class="button button-quiet"
+                id="detailClose"
+            >
+                Close
+            </button>
+
+            <button
+                type="button"
+                class="button button-primary"
+                id="detailEdit"
+            >
+                Edit date
+            </button>
+        </div>
+    </dialog>
+
+    <!-- Notification Toast -->
+    <div
+        id="toast"
+        class="toast"
+        role="status"
+        aria-live="polite"
+    ></div>
+
+</body>
+</html>

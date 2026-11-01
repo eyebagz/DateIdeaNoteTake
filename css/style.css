@@ -61,9 +61,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--teal-dark);
 }
 
-/* ==========================================
-   BOOK PAGE
-========================================== */
+/* what makes it look like a book-ish */
 
 .page-shell {
   position: relative;
@@ -116,9 +114,7 @@ a { color: inherit; text-decoration: none; }
   pointer-events: none;
 }
 
-/* ==========================================
-   HEADER AND INTRODUCTION
-========================================== */
+/* header and intro*/
 
 .topbar {
   position: relative;
@@ -223,9 +219,7 @@ a { color: inherit; text-decoration: none; }
   margin: 0 0 22px;
 }
 
-/* ==========================================
-   BUTTONS
-========================================== */
+/* b-u-t-t-o-n-s */
 
 .button {
   border: 0;
@@ -260,9 +254,7 @@ a { color: inherit; text-decoration: none; }
   transform: translateY(-1px);
 }
 
-/* ==========================================
-   DATE SECTIONS
-========================================== */
+/* date time details*/
 
 .list-section {
   position: relative;
@@ -305,9 +297,7 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 
-/* ==========================================
-   STICKY NOTE GRID
-========================================== */
+/* sticky note format and grid */
 
 .idea-grid {
   display: grid;
@@ -535,9 +525,7 @@ a { color: inherit; text-decoration: none; }
   font-weight: 700;
 }
 
-/* ==========================================
-   EMPTY STATES AND FOOTER
-========================================== */
+/* when the footer is empty */
 
 .empty-state {
   grid-column: 1 / -1;
@@ -582,9 +570,7 @@ a { color: inherit; text-decoration: none; }
   text-align: center;
 }
 
-/* ==========================================
-   DIALOGS
-========================================== */
+/* text */
 
 .paper-dialog {
   width: min(590px, calc(100vw - 32px));
@@ -702,9 +688,7 @@ a { color: inherit; text-decoration: none; }
   overflow-wrap: anywhere;
 }
 
-/* ==========================================
-   MEMORY FEATURES
-========================================== */
+/* memory stuff */
 
 .memory-editor {
   margin-top: 24px;
@@ -851,9 +835,7 @@ a { color: inherit; text-decoration: none; }
   line-height: 1.6;
 }
 
-/* ==========================================
-   TOAST NOTIFICATIONS
-========================================== */
+/* notifpootions*/
 
 .toast {
   position: fixed;
@@ -877,9 +859,7 @@ a { color: inherit; text-decoration: none; }
   transform: translate(-50%, 0);
 }
 
-/* ==========================================
-   ANIMATIONS
-========================================== */
+/* anims*/
 
 @keyframes page-arrive {
   from { opacity: 0; }
@@ -901,9 +881,7 @@ a { color: inherit; text-decoration: none; }
   to { opacity: 1; transform: translateY(0) rotate(2deg); }
 }
 
-/* ==========================================
-   RESPONSIVE DESIGN
-========================================== */
+/* responsivity */
 
 @media (max-width: 900px) {
   .idea-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1150,9 +1128,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 
-/* =========================================
-   FIX: INTRODUCTION STICKY NOTE
-   ========================================= */
+/* fix to the sitcky note at the start */
 
 .intro {
     display: grid;

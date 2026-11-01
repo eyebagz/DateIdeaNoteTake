@@ -1,9 +1,3 @@
-
-/* ========================================
-   Our Little Date Journal
-   Main JavaScript
-======================================== */
-
 const STORAGE_KEY = "our-little-date-journal-ideas-v1";
 const $ = (selector) => document.querySelector(selector);
 
@@ -33,9 +27,7 @@ const fieldIds = {
     notes: "ideaNotes"
 };
 
-/* ========================================
-   STORAGE
-======================================== */
+/* storage shits */
 
 function loadIdeas() {
     try {
@@ -77,9 +69,7 @@ function saveIdeas() {
     }
 }
 
-/* ========================================
-   HELPER FUNCTIONS
-======================================== */
+/* helper funcs */
 
 function escapeHTML(value = "") {
     return String(value).replace(/[&<>"']/g, (character) => ({
@@ -137,9 +127,7 @@ function dateMeta(idea) {
         .join("");
 }
 
-/* ========================================
-   RENDERING DATE IDEAS
-======================================== */
+/* sum render bullshi */
 
 function render() {
     const todo = ideas
@@ -256,10 +244,7 @@ function emptyHTML(title, description, icon) {
     `;
 }
 
-/* ========================================
-   ADDING AND EDITING DATE IDEAS
-======================================== */
-
+/*date editing */
 function openForm(idea = null) {
     form.reset();
 
@@ -286,9 +271,7 @@ function closeForm() {
     form.reset();
 }
 
-/* ========================================
-   NOTIFICATIONS
-======================================== */
+/* notis */
 
 function showToast(message) {
     const toast = $("#toast");
@@ -303,9 +286,7 @@ function showToast(message) {
     }, 2800);
 }
 
-/* ========================================
-   DATE DETAILS AND MEMORIES
-======================================== */
+/* notes and memories to add */
 
 function showDetails(idea) {
     selectedDetailId = idea.id;
@@ -455,7 +436,7 @@ function showDetails(idea) {
     detailDialog.showModal();
 }
 
-/* Resize photos before storing them */
+/* changing image format to save memory */
 
 function compressImage(file) {
     return new Promise((resolve, reject) => {
@@ -561,10 +542,6 @@ function saveMemoryDetails() {
     }
 }
 
-/* ========================================
-   DIALOG EVENT LISTENERS
-======================================== */
-
 $("#openAdd").addEventListener("click", () => openForm());
 
 $("#closeDialog").addEventListener("click", closeForm);
@@ -590,9 +567,7 @@ $("#detailEdit").addEventListener("click", () => {
     if (idea) openForm(idea);
 });
 
-/* ========================================
-   SAVING DATE IDEAS
-======================================== */
+/* saving dates */
 
 form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -668,13 +643,11 @@ $("#ideaTitle").addEventListener("input", () => {
     $("#ideaTitle").setCustomValidity("");
 });
 
-/* ========================================
-   DATE CARD AND MEMORY ACTIONS
-======================================== */
+/* date note actions and other memory shits */
 
 document.addEventListener("click", (event) => {
 
-    /* Remove an individual photo */
+    /* remove a photo ONE by ONE */
 
     const removePhoto = event.target.closest("[data-remove-photo]");
 
@@ -695,7 +668,7 @@ document.addEventListener("click", (event) => {
         return;
     }
 
-    /* Save rating and memory notes */
+    /* rating and memories */
 
     if (event.target.closest("#saveMemories")) {
         saveMemoryDetails();
@@ -760,7 +733,7 @@ document.addEventListener("click", (event) => {
     }
 });
 
-/* Handle photo uploads */
+/*  photo uploads */
 
 document.addEventListener("change", (event) => {
     if (
@@ -771,8 +744,6 @@ document.addEventListener("change", (event) => {
     }
 });
 
-/* ========================================
-   INITIALISE THE WEBSITE
-======================================== */
+/* starting website */
 
 render();

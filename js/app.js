@@ -1,3 +1,4 @@
+
 const STORAGE_KEY = "our-little-date-journal-ideas-v1";
 const MIGRATION_KEY = `${STORAGE_KEY}-supabase-migrated`;
 const $ = (selector) => document.querySelector(selector);
@@ -13,6 +14,7 @@ let toastTimer;
 let selectedDetailId = null;
 let isLoading = true;
 let supabaseClient;
+let realtimeChannel;
 
 const fields = [
     "title", "location", "date", "time", "cost", "creator",
@@ -60,149 +62,365 @@ function localIdeas() {
 function setConnectionStatus(message, state = "loading") {
     const status = $("#connectionStatus");
     if (!status) return;
+
     status.textContent = message;
     status.dataset.state = state;
 }
 
 function getSupabase() {
     const config = window.SUPABASE_CONFIG || {};
-    if (!config.url || !config.anonKey || config.url.includes("YOUR_") || config.anonKey.includes("YOUR_")) {
-        throw new Error("Add your Supabase URL and anon key to js/supabase-config.js first.");
+
+    if (
+        !config.url ||
+        !config.anonKey ||
+        config.url.includes("YOUR_") ||
+        config.anonKey.includes("YOUR_")
+    ) {
+        throw new Error(
+            "Add your Supabase URL and anon key to js/supabase-config.js first."
+        );
     }
-    if (!window.supabase?.createClient) throw new Error("Supabase could not be loaded. Check your internet connection.");
-    return window.supabase.createClient(config.url, config.anonKey);
+
+    if (!window.supabase?.createClient) {
+        throw new Error(
+            "Supabase could not be loaded. Check your internet connection."
+        );
+    }
+
+    return window.supabase.createClient(
+        config.url,
+        config.anonKey
+    );
 }
+
+/* LOAD SHARED IDEAS */
 
 async function loadIdeas() {
     try {
         supabaseClient = getSupabase();
-        setConnectionStatus("Connecting to shared journal…", "loading");
 
-        // Import ideas already saved in this browser once, so existing entries are not lost.
+        setConnectionStatus(
+            "Connecting to shared journal…",
+            "loading"
+        );
+
+        // Import existing browser ideas into Supabase once.
         const oldLocalIdeas = localIdeas();
-        if (!localStorage.getItem(MIGRATION_KEY) && oldLocalIdeas.length) {
+
+        if (
+            !localStorage.getItem(MIGRATION_KEY) &&
+            oldLocalIdeas.length
+        ) {
             const { error: migrationError } = await supabaseClient
                 .from("date_ideas")
-                .upsert(oldLocalIdeas.map((idea) => ({ id: idea.id, data: idea })), { onConflict: "id" });
+                .upsert(
+                    oldLocalIdeas.map((idea) => ({
+                        id: idea.id,
+                        data: idea
+                    })),
+                    { onConflict: "id" }
+                );
+
             if (migrationError) throw migrationError;
         }
+
         localStorage.setItem(MIGRATION_KEY, "true");
 
+        // Retrieve shared ideas.
         const { data, error } = await supabaseClient
             .from("date_ideas")
             .select("id,data")
             .order("created_at", { ascending: false });
+
         if (error) throw error;
 
-        ideas = (data || []).map((row) => normaliseIdea(row.data));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
-        setConnectionStatus("Shared journal connected", "connected");
-
-        // Keep other open browsers in sync when anyone adds, edits or deletes an idea.
-        supabaseClient
-            .channel("public-date-ideas")
-            .on("postgres_changes", { event: "*", schema: "public", table: "date_ideas" }, async () => {
-                const { data: latest, error: refreshError } = await supabaseClient
-                    .from("date_ideas").select("id,data").order("created_at", { ascending: false });
-                if (!refreshError) {
-                    ideas = (latest || []).map((row) => normaliseIdea(row.data));
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
-                    render();
-                }
+        ideas = (data || []).map((row) =>
+            normaliseIdea({
+                ...row.data,
+                id: row.id
             })
-            .subscribe();
+        );
+
+        localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify(ideas)
+        );
+
+        setConnectionStatus(
+            "Shared journal connected",
+            "connected"
+        );
+
+        subscribeToSharedChanges();
+
         return true;
+
     } catch (error) {
         console.error("Supabase load failed:", error);
-        setConnectionStatus("Couldn't connect to shared journal", "error");
-        showToast(error.message || "Couldn't load the shared date ideas.");
+
+        setConnectionStatus(
+            "Couldn't connect to shared journal",
+            "error"
+        );
+
+        showToast(
+            error.message || "Couldn't load the shared date ideas."
+        );
+
         return false;
+
     } finally {
         isLoading = false;
         render();
     }
 }
 
+/* REAL-TIME SYNCHRONISATION */
+
+function subscribeToSharedChanges() {
+    if (!supabaseClient || realtimeChannel) return;
+
+    realtimeChannel = supabaseClient
+        .channel("public-date-ideas")
+        .on(
+            "postgres_changes",
+            {
+                event: "*",
+                schema: "public",
+                table: "date_ideas"
+            },
+            async () => {
+                const { data, error } = await supabaseClient
+                    .from("date_ideas")
+                    .select("id,data")
+                    .order("created_at", {
+                        ascending: false
+                    });
+
+                if (error) {
+                    console.error(
+                        "Couldn't refresh shared date ideas:",
+                        error
+                    );
+                    return;
+                }
+
+                ideas = (data || []).map((row) =>
+                    normaliseIdea({
+                        ...row.data,
+                        id: row.id
+                    })
+                );
+
+                localStorage.setItem(
+                    STORAGE_KEY,
+                    JSON.stringify(ideas)
+                );
+
+                render();
+            }
+        )
+        .subscribe((status) => {
+            if (
+                status === "CHANNEL_ERROR" ||
+                status === "TIMED_OUT"
+            ) {
+                console.error(
+                    "Supabase realtime connection status:",
+                    status
+                );
+            }
+        });
+}
+
+/* SAVE IDEAS TO SUPABASE */
+
 async function saveIdeas() {
     try {
-        if (!supabaseClient) throw new Error("The shared database is not connected yet.");
+        if (!supabaseClient) {
+            throw new Error(
+                "The shared database is not connected yet."
+            );
+        }
+
         const { error } = await supabaseClient
             .from("date_ideas")
-            .upsert(ideas.map((idea) => ({ id: idea.id, data: idea })), { onConflict: "id" });
-        if (error) throw error;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
-        setConnectionStatus("Shared journal connected", "connected");
+            .upsert(
+                ideas.map((idea) => ({
+                    id: idea.id,
+                    data: idea
+                })),
+                { onConflict: "id" }
+            );
 
-        // Keep other open browsers in sync when anyone adds, edits or deletes an idea.
-        supabaseClient
-            .channel("public-date-ideas")
-            .on("postgres_changes", { event: "*", schema: "public", table: "date_ideas" }, async () => {
-                const { data: latest, error: refreshError } = await supabaseClient
-                    .from("date_ideas").select("id,data").order("created_at", { ascending: false });
-                if (!refreshError) {
-                    ideas = (latest || []).map((row) => normaliseIdea(row.data));
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
-                    render();
-                }
-            })
-            .subscribe();
+        if (error) throw error;
+
+        localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify(ideas)
+        );
+
+        setConnectionStatus(
+            "Shared journal connected",
+            "connected"
+        );
+
         return true;
+
     } catch (error) {
         console.error("Supabase save failed:", error);
-        showToast(error.message || "Couldn't save to the shared journal. Please try again.");
+
+        showToast(
+            error.message ||
+            "Couldn't save to the shared journal. Please try again."
+        );
+
         return false;
     }
 }
+
+/* DELETE IDEAS */
 
 async function deleteIdeaFromCloud(id) {
     if (!supabaseClient) return false;
-    const { error } = await supabaseClient.from("date_ideas").delete().eq("id", id);
+
+    const { error } = await supabaseClient
+        .from("date_ideas")
+        .delete()
+        .eq("id", id);
+
     if (error) {
         console.error("Supabase delete failed:", error);
-        showToast(error.message || "Couldn't delete that idea from the shared journal.");
+
+        showToast(
+            error.message ||
+            "Couldn't delete that idea from the shared journal."
+        );
+
         return false;
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+
+    localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(ideas)
+    );
+
     return true;
 }
 
+/* IMAGE COMPRESSION */
+
 function compressImage(file) {
     return new Promise((resolve, reject) => {
-        if (!file.type.startsWith("image/")) return reject(new Error("Please choose an image file."));
+        if (!file.type.startsWith("image/")) {
+            return reject(
+                new Error("Please choose an image file.")
+            );
+        }
+
         const reader = new FileReader();
-        reader.onerror = () => reject(new Error("That image couldn't be read."));
+
+        reader.onerror = () => {
+            reject(new Error("That image couldn't be read."));
+        };
+
         reader.onload = () => {
             const image = new Image();
-            image.onerror = () => reject(new Error("That image couldn't be opened."));
+
+            image.onerror = () => {
+                reject(new Error("That image couldn't be opened."));
+            };
+
             image.onload = () => {
                 const maxDimension = 1100;
-                const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+
+                const scale = Math.min(
+                    1,
+                    maxDimension / Math.max(
+                        image.width,
+                        image.height
+                    )
+                );
+
                 const canvas = document.createElement("canvas");
+
                 canvas.width = Math.round(image.width * scale);
                 canvas.height = Math.round(image.height * scale);
-                canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Couldn't prepare that photo.")), "image/jpeg", 0.78);
+
+                const context = canvas.getContext("2d");
+
+                if (!context) {
+                    reject(
+                        new Error("Couldn't prepare that photo.")
+                    );
+                    return;
+                }
+
+                context.drawImage(
+                    image,
+                    0,
+                    0,
+                    canvas.width,
+                    canvas.height
+                );
+
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) {
+                            resolve(blob);
+                        } else {
+                            reject(
+                                new Error("Couldn't prepare that photo.")
+                            );
+                        }
+                    },
+                    "image/jpeg",
+                    0.78
+                );
             };
+
             image.src = reader.result;
         };
+
         reader.readAsDataURL(file);
     });
 }
 
+/* UPLOAD PHOTOS TO SUPABASE STORAGE */
+
 async function uploadMemoryPhoto(file) {
-    if (!supabaseClient) throw new Error("The shared database is not connected.");
+    if (!supabaseClient) {
+        throw new Error(
+            "The shared database is not connected."
+        );
+    }
+
     const compressed = await compressImage(file);
-    const safeName = `${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+
+    const safeName =
+        `${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+
     const path = `${selectedDetailId}/${safeName}`;
-    const { error } = await supabaseClient.storage.from("date-photos").upload(path, compressed, {
-        contentType: "image/jpeg", upsert: false
-    });
+
+    const { error } = await supabaseClient
+        .storage
+        .from("date-photos")
+        .upload(path, compressed, {
+            contentType: "image/jpeg",
+            upsert: false
+        });
+
     if (error) throw error;
-    const { data } = supabaseClient.storage.from("date-photos").getPublicUrl(path);
+
+    const { data } = supabaseClient
+        .storage
+        .from("date-photos")
+        .getPublicUrl(path);
+
     return data.publicUrl;
 }
 
-/* helper funcs */
+/* HELPER FUNCTIONS */
 
 function escapeHTML(value = "") {
     return String(value).replace(/[&<>"']/g, (character) => ({
@@ -229,7 +447,9 @@ function displayDate(date) {
 }
 
 function money(cost) {
-    return cost !== "" && cost !== null && cost !== undefined
+    return cost !== "" &&
+        cost !== null &&
+        cost !== undefined
         ? `£${Number(cost).toLocaleString("en-GB", {
             minimumFractionDigits: 0,
             maximumFractionDigits: 2
@@ -261,16 +481,20 @@ function dateMeta(idea) {
         .join("");
 }
 
-/* sum render bullshi */
+/* RENDER WEBSITE */
 
 function render() {
     const todo = ideas
         .filter((idea) => !idea.completed)
-        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        .sort((a, b) =>
+            (b.createdAt || 0) - (a.createdAt || 0)
+        );
 
     const done = ideas
         .filter((idea) => idea.completed)
-        .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+        .sort((a, b) =>
+            (b.completedAt || 0) - (a.completedAt || 0)
+        );
 
     $("#todoCount").textContent =
         `${todo.length} ${todo.length === 1 ? "idea" : "ideas"}`;
@@ -378,14 +602,16 @@ function emptyHTML(title, description, icon) {
     `;
 }
 
-/*date editing */
+/* DATE CREATION AND EDITING */
+
 function openForm(idea = null) {
     form.reset();
 
     $("#ideaId").value = idea?.id || "";
 
     fields.forEach((key) => {
-        $("#" + fieldIds[key]).value = idea?.[key] ?? "";
+        $("#" + fieldIds[key]).value =
+            idea?.[key] ?? "";
     });
 
     $("#dialogTitle").textContent = idea
@@ -405,7 +631,7 @@ function closeForm() {
     form.reset();
 }
 
-/* notis */
+/* NOTIFICATIONS */
 
 function showToast(message) {
     const toast = $("#toast");
@@ -420,10 +646,11 @@ function showToast(message) {
     }, 2800);
 }
 
-/* notes and memories to add */
+/* VIEW DATE DETAILS */
 
 function showDetails(idea) {
     selectedDetailId = idea.id;
+
     $("#detailTitle").textContent = idea.title;
 
     const labels = {
@@ -476,18 +703,23 @@ function showDetails(idea) {
 
                 <select id="memoryRating">
                     <option value="">No rating</option>
+
                     <option value="1" ${String(idea.rating) === "1" ? "selected" : ""}>
                         ★☆☆☆☆ — Not for us
                     </option>
+
                     <option value="2" ${String(idea.rating) === "2" ? "selected" : ""}>
                         ★★☆☆☆ — It was okay
                     </option>
+
                     <option value="3" ${String(idea.rating) === "3" ? "selected" : ""}>
                         ★★★☆☆ — Enjoyed it
                     </option>
+
                     <option value="4" ${String(idea.rating) === "4" ? "selected" : ""}>
                         ★★★★☆ — Really good
                     </option>
+
                     <option value="5" ${String(idea.rating) === "5" ? "selected" : ""}>
                         ★★★★★ — One to remember
                     </option>
@@ -572,33 +804,63 @@ function showDetails(idea) {
     detailDialog.showModal();
 }
 
+/* SAVE MEMORY PHOTOS */
+
 async function saveMemoryPhotos(files) {
-    const idea = ideas.find((item) => item.id === selectedDetailId);
+    const idea = ideas.find(
+        (item) => item.id === selectedDetailId
+    );
+
     if (!idea) return;
 
-    const current = Array.isArray(idea.photos) ? idea.photos : [];
+    const current = Array.isArray(idea.photos)
+        ? idea.photos
+        : [];
+
     const available = 4 - current.length;
+
     if (available <= 0) {
-        showToast("You've reached the limit of four photos for this date.");
+        showToast(
+            "You've reached the limit of four photos for this date."
+        );
         return;
     }
 
     const selected = Array.from(files).slice(0, available);
+
     if (files.length > available) {
-        showToast(`Only ${available} more photo${available === 1 ? "" : "s"} can be added.`);
+        showToast(
+            `Only ${available} more photo${available === 1 ? "" : "s"} can be added.`
+        );
     }
 
     try {
-        const uploadedUrls = await Promise.all(selected.map(uploadMemoryPhoto));
-        idea.photos = [...current, ...uploadedUrls];
+        const uploadedUrls = await Promise.all(
+            selected.map(uploadMemoryPhoto)
+        );
+
+        idea.photos = [
+            ...current,
+            ...uploadedUrls
+        ];
+
         if (await saveIdeas()) {
             showDetails(idea);
-            showToast("Photos added to the shared journal.");
+            showToast(
+                "Photos added to the shared journal."
+            );
         }
+
     } catch (error) {
-        showToast(error.message || "Couldn't upload those photos.");
+        console.error("Photo upload failed:", error);
+
+        showToast(
+            error.message || "Couldn't upload those photos."
+        );
     }
 }
+
+/* SAVE MEMORY DETAILS */
 
 async function saveMemoryDetails() {
     const idea = ideas.find(
@@ -613,17 +875,26 @@ async function saveMemoryDetails() {
     if (await saveIdeas()) {
         render();
         showDetails(idea);
-        showToast("Your date memories have been saved.");
+
+        showToast(
+            "Your date memories have been saved."
+        );
     }
 }
 
-$("#openAdd").addEventListener("click", () => openForm());
+/* OPEN AND CLOSE DIALOGS */
+
+$("#openAdd").addEventListener("click", () => {
+    openForm();
+});
 
 $("#closeDialog").addEventListener("click", closeForm);
 $("#cancelDialog").addEventListener("click", closeForm);
 
 dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) closeForm();
+    if (event.target === dialog) {
+        closeForm();
+    }
 });
 
 $("#closeDetails").addEventListener("click", () => {
@@ -642,7 +913,7 @@ $("#detailEdit").addEventListener("click", () => {
     if (idea) openForm(idea);
 });
 
-/* saving dates */
+/* SAVE NEW AND EDITED DATE IDEAS */
 
 form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -660,11 +931,17 @@ form.addEventListener("submit", async (event) => {
 
     $("#ideaTitle").setCustomValidity("");
 
-    if (!["Emily", "Ardell"].includes($("#ideaCreator").value)) {
-        $("#ideaCreator").setCustomValidity("Please choose Emily or Ardell.");
+    const creator = $("#ideaCreator").value;
+
+    if (!["Emily", "Ardell"].includes(creator)) {
+        $("#ideaCreator").setCustomValidity(
+            "Please choose Emily or Ardell."
+        );
+
         $("#ideaCreator").reportValidity();
         return;
     }
+
     $("#ideaCreator").setCustomValidity("");
 
     const id = $("#ideaId").value;
@@ -695,7 +972,6 @@ form.addEventListener("submit", async (event) => {
             updatedAt: Date.now()
         });
 
-        showToast("Idea updated.");
     } else {
         ideas.push({
             id: globalThis.crypto?.randomUUID?.()
@@ -711,15 +987,19 @@ form.addEventListener("submit", async (event) => {
             memoryNotes: "",
             photos: []
         });
-
-        showToast("Idea saved.");
     }
 
     if (await saveIdeas()) {
         render();
         closeForm();
+
+        showToast(
+            existing ? "Idea updated." : "Idea saved."
+        );
     }
 });
+
+/* CREATOR AND TITLE VALIDATION */
 
 $("#ideaTitle").addEventListener("input", () => {
     $("#ideaTitle").setCustomValidity("");
@@ -729,13 +1009,14 @@ $("#ideaCreator").addEventListener("change", () => {
     $("#ideaCreator").setCustomValidity("");
 });
 
-/* date note actions and other memory shits */
+/* DATE IDEA ACTIONS */
 
 document.addEventListener("click", async (event) => {
 
-    /* remove a photo ONE by ONE */
-
-    const removePhoto = event.target.closest("[data-remove-photo]");
+    // Remove an individual photo.
+    const removePhoto = event.target.closest(
+        "[data-remove-photo]"
+    );
 
     if (removePhoto) {
         const idea = ideas.find(
@@ -749,19 +1030,22 @@ document.addEventListener("click", async (event) => {
             1
         );
 
-        if (await saveIdeas()) showDetails(idea);
+        if (await saveIdeas()) {
+            showDetails(idea);
+        }
 
         return;
     }
 
-    /* rating and memories */
-
+    // Save memory rating and notes.
     if (event.target.closest("#saveMemories")) {
         await saveMemoryDetails();
         return;
     }
 
-    const button = event.target.closest("button[data-action]");
+    const button = event.target.closest(
+        "button[data-action]"
+    );
 
     if (!button) return;
 
@@ -786,7 +1070,10 @@ document.addEventListener("click", async (event) => {
             if (await saveIdeas()) {
                 render();
                 showDetails(idea);
-                showToast("Moved to Completed. Add memories whenever you're ready.");
+
+                showToast(
+                    "Moved to Completed. Add memories whenever you're ready."
+                );
             }
             break;
 
@@ -796,7 +1083,10 @@ document.addEventListener("click", async (event) => {
 
             if (await saveIdeas()) {
                 render();
-                showToast("Moved back to To Be Completed. Your saved memories are kept.");
+
+                showToast(
+                    "Moved back to To Be Completed. Your saved memories are kept."
+                );
             }
             break;
 
@@ -805,11 +1095,22 @@ document.addEventListener("click", async (event) => {
             break;
 
         case "delete":
-            if (confirm(`Delete “${idea.title}”? This can't be undone.`)) {
-                ideas = ideas.filter((item) => item.id !== idea.id);
+            if (
+                confirm(
+                    `Delete “${idea.title}”? This can't be undone.`
+                )
+            ) {
+                ideas = ideas.filter(
+                    (item) => item.id !== idea.id
+                );
+
                 if (await deleteIdeaFromCloud(idea.id)) {
                     render();
-                    showToast("Idea deleted from the shared journal.");
+
+                    showToast(
+                        "Idea deleted from the shared journal."
+                    );
+
                 } else {
                     ideas.push(idea);
                     render();
@@ -819,7 +1120,7 @@ document.addEventListener("click", async (event) => {
     }
 });
 
-/*  photo uploads */
+/* PHOTO UPLOAD LISTENER */
 
 document.addEventListener("change", (event) => {
     if (
@@ -830,7 +1131,7 @@ document.addEventListener("change", (event) => {
     }
 });
 
-/* starting website */
+/* START WEBSITE */
 
 render();
 loadIdeas();

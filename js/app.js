@@ -1,4 +1,5 @@
 const STORAGE_KEY = "our-little-date-journal-ideas-v1";
+const MIGRATION_KEY = `${STORAGE_KEY}-supabase-migrated`;
 const $ = (selector) => document.querySelector(selector);
 
 const todoList = $("#todoList");
@@ -7,9 +8,11 @@ const dialog = $("#ideaDialog");
 const form = $("#ideaForm");
 const detailDialog = $("#detailDialog");
 
-let ideas = loadIdeas();
+let ideas = [];
 let toastTimer;
 let selectedDetailId = null;
+let isLoading = true;
+let supabaseClient;
 
 const fields = [
     "title", "location", "date", "time", "cost",
@@ -27,46 +30,174 @@ const fieldIds = {
     notes: "ideaNotes"
 };
 
-/* storage shits */
+function normaliseIdea(idea) {
+    return {
+        ...idea,
+        id: String(idea.id),
+        location: idea.location || "",
+        date: idea.date || "",
+        time: idea.time || "",
+        cost: idea.cost ?? "",
+        bring: idea.bring || "",
+        notes: idea.notes || "",
+        memoryNotes: idea.memoryNotes || "",
+        rating: idea.rating || "",
+        photos: Array.isArray(idea.photos) ? idea.photos : []
+    };
+}
 
-function loadIdeas() {
+function localIdeas() {
     try {
-        const saved = JSON.parse(
-            localStorage.getItem(STORAGE_KEY) || "[]"
-        );
-
-        return Array.isArray(saved) ? saved.map((idea) => ({
-            ...idea,
-            location: idea.location || "",
-            date: idea.date || "",
-            time: idea.time || "",
-            cost: idea.cost ?? "",
-            bring: idea.bring || "",
-            notes: idea.notes || "",
-            memoryNotes: idea.memoryNotes || "",
-            rating: idea.rating || "",
-            photos: Array.isArray(idea.photos) ? idea.photos : []
-        })) : [];
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        return Array.isArray(saved) ? saved.map(normaliseIdea) : [];
     } catch {
         return [];
     }
 }
 
-function saveIdeas() {
+function setConnectionStatus(message, state = "loading") {
+    const status = $("#connectionStatus");
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = state;
+}
+
+function getSupabase() {
+    const config = window.SUPABASE_CONFIG || {};
+    if (!config.url || !config.anonKey || config.url.includes("YOUR_") || config.anonKey.includes("YOUR_")) {
+        throw new Error("Add your Supabase URL and anon key to js/supabase-config.js first.");
+    }
+    if (!window.supabase?.createClient) throw new Error("Supabase could not be loaded. Check your internet connection.");
+    return window.supabase.createClient(config.url, config.anonKey);
+}
+
+async function loadIdeas() {
     try {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(ideas)
-        );
+        supabaseClient = getSupabase();
+        setConnectionStatus("Connecting to shared journal…", "loading");
 
+        // Import ideas already saved in this browser once, so existing entries are not lost.
+        const oldLocalIdeas = localIdeas();
+        if (!localStorage.getItem(MIGRATION_KEY) && oldLocalIdeas.length) {
+            const { error: migrationError } = await supabaseClient
+                .from("date_ideas")
+                .upsert(oldLocalIdeas.map((idea) => ({ id: idea.id, data: idea })), { onConflict: "id" });
+            if (migrationError) throw migrationError;
+        }
+        localStorage.setItem(MIGRATION_KEY, "true");
+
+        const { data, error } = await supabaseClient
+            .from("date_ideas")
+            .select("id,data")
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+
+        ideas = (data || []).map((row) => normaliseIdea(row.data));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+        setConnectionStatus("Shared journal connected", "connected");
+
+        // Keep other open browsers in sync when anyone adds, edits or deletes an idea.
+        supabaseClient
+            .channel("public-date-ideas")
+            .on("postgres_changes", { event: "*", schema: "public", table: "date_ideas" }, async () => {
+                const { data: latest, error: refreshError } = await supabaseClient
+                    .from("date_ideas").select("id,data").order("created_at", { ascending: false });
+                if (!refreshError) {
+                    ideas = (latest || []).map((row) => normaliseIdea(row.data));
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+                    render();
+                }
+            })
+            .subscribe();
         return true;
-    } catch {
-        showToast(
-            "Couldn't save. Browser storage may be full; try removing a photo."
-        );
+    } catch (error) {
+        console.error("Supabase load failed:", error);
+        setConnectionStatus("Couldn't connect to shared journal", "error");
+        showToast(error.message || "Couldn't load the shared date ideas.");
+        return false;
+    } finally {
+        isLoading = false;
+        render();
+    }
+}
 
+async function saveIdeas() {
+    try {
+        if (!supabaseClient) throw new Error("The shared database is not connected yet.");
+        const { error } = await supabaseClient
+            .from("date_ideas")
+            .upsert(ideas.map((idea) => ({ id: idea.id, data: idea })), { onConflict: "id" });
+        if (error) throw error;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+        setConnectionStatus("Shared journal connected", "connected");
+
+        // Keep other open browsers in sync when anyone adds, edits or deletes an idea.
+        supabaseClient
+            .channel("public-date-ideas")
+            .on("postgres_changes", { event: "*", schema: "public", table: "date_ideas" }, async () => {
+                const { data: latest, error: refreshError } = await supabaseClient
+                    .from("date_ideas").select("id,data").order("created_at", { ascending: false });
+                if (!refreshError) {
+                    ideas = (latest || []).map((row) => normaliseIdea(row.data));
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+                    render();
+                }
+            })
+            .subscribe();
+        return true;
+    } catch (error) {
+        console.error("Supabase save failed:", error);
+        showToast(error.message || "Couldn't save to the shared journal. Please try again.");
         return false;
     }
+}
+
+async function deleteIdeaFromCloud(id) {
+    if (!supabaseClient) return false;
+    const { error } = await supabaseClient.from("date_ideas").delete().eq("id", id);
+    if (error) {
+        console.error("Supabase delete failed:", error);
+        showToast(error.message || "Couldn't delete that idea from the shared journal.");
+        return false;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+    return true;
+}
+
+function compressImage(file) {
+    return new Promise((resolve, reject) => {
+        if (!file.type.startsWith("image/")) return reject(new Error("Please choose an image file."));
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("That image couldn't be read."));
+        reader.onload = () => {
+            const image = new Image();
+            image.onerror = () => reject(new Error("That image couldn't be opened."));
+            image.onload = () => {
+                const maxDimension = 1100;
+                const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.round(image.width * scale);
+                canvas.height = Math.round(image.height * scale);
+                canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Couldn't prepare that photo.")), "image/jpeg", 0.78);
+            };
+            image.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+async function uploadMemoryPhoto(file) {
+    if (!supabaseClient) throw new Error("The shared database is not connected.");
+    const compressed = await compressImage(file);
+    const safeName = `${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+    const path = `${selectedDetailId}/${safeName}`;
+    const { error } = await supabaseClient.storage.from("date-photos").upload(path, compressed, {
+        contentType: "image/jpeg", upsert: false
+    });
+    if (error) throw error;
+    const { data } = supabaseClient.storage.from("date-photos").getPublicUrl(path);
+    return data.publicUrl;
 }
 
 /* helper funcs */
@@ -391,7 +522,7 @@ function showDetails(idea) {
                 >
 
                 <p class="field-hint">
-                    Pictures are resized before saving to help keep your browser storage manageable.
+                    Photos are stored in the shared journal so everyone can see them.
                 </p>
 
                 <div class="memory-photo-grid">
@@ -436,96 +567,35 @@ function showDetails(idea) {
     detailDialog.showModal();
 }
 
-/* changing image format to save memory */
-
-function compressImage(file) {
-    return new Promise((resolve, reject) => {
-        if (!file.type.startsWith("image/")) {
-            return reject(new Error("Please choose an image file."));
-        }
-
-        const reader = new FileReader();
-
-        reader.onerror = () =>
-            reject(new Error("That image couldn't be read."));
-
-        reader.onload = () => {
-            const image = new Image();
-
-            image.onerror = () =>
-                reject(new Error("That image couldn't be opened."));
-
-            image.onload = () => {
-                const maxDimension = 1100;
-
-                const scale = Math.min(
-                    1,
-                    maxDimension / Math.max(image.width, image.height)
-                );
-
-                const canvas = document.createElement("canvas");
-
-                canvas.width = Math.round(image.width * scale);
-                canvas.height = Math.round(image.height * scale);
-
-                const context = canvas.getContext("2d");
-
-                context.drawImage(
-                    image,
-                    0,
-                    0,
-                    canvas.width,
-                    canvas.height
-                );
-
-                resolve(canvas.toDataURL("image/jpeg", 0.72));
-            };
-
-            image.src = reader.result;
-        };
-
-        reader.readAsDataURL(file);
-    });
-}
-
 async function saveMemoryPhotos(files) {
-    const idea = ideas.find(
-        (item) => item.id === selectedDetailId
-    );
-
+    const idea = ideas.find((item) => item.id === selectedDetailId);
     if (!idea) return;
 
     const current = Array.isArray(idea.photos) ? idea.photos : [];
     const available = 4 - current.length;
-
     if (available <= 0) {
         showToast("You've reached the limit of four photos for this date.");
         return;
     }
 
     const selected = Array.from(files).slice(0, available);
-
     if (files.length > available) {
         showToast(`Only ${available} more photo${available === 1 ? "" : "s"} can be added.`);
     }
 
     try {
-        const compressed = await Promise.all(
-            selected.map(compressImage)
-        );
-
-        idea.photos = [...current, ...compressed];
-
-        if (saveIdeas()) {
+        const uploadedUrls = await Promise.all(selected.map(uploadMemoryPhoto));
+        idea.photos = [...current, ...uploadedUrls];
+        if (await saveIdeas()) {
             showDetails(idea);
-            showToast("Photos added to your memories.");
+            showToast("Photos added to the shared journal.");
         }
     } catch (error) {
-        showToast(error.message || "Couldn't add those photos.");
+        showToast(error.message || "Couldn't upload those photos.");
     }
 }
 
-function saveMemoryDetails() {
+async function saveMemoryDetails() {
     const idea = ideas.find(
         (item) => item.id === selectedDetailId
     );
@@ -535,7 +605,7 @@ function saveMemoryDetails() {
     idea.rating = $("#memoryRating").value;
     idea.memoryNotes = $("#memoryNotes").value.trim();
 
-    if (saveIdeas()) {
+    if (await saveIdeas()) {
         render();
         showDetails(idea);
         showToast("Your date memories have been saved.");
@@ -569,7 +639,7 @@ $("#detailEdit").addEventListener("click", () => {
 
 /* saving dates */
 
-form.addEventListener("submit", (event) => {
+form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const title = $("#ideaTitle").value.trim();
@@ -633,7 +703,7 @@ form.addEventListener("submit", (event) => {
         showToast("Idea saved.");
     }
 
-    if (saveIdeas()) {
+    if (await saveIdeas()) {
         render();
         closeForm();
     }
@@ -645,7 +715,7 @@ $("#ideaTitle").addEventListener("input", () => {
 
 /* date note actions and other memory shits */
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
 
     /* remove a photo ONE by ONE */
 
@@ -663,7 +733,7 @@ document.addEventListener("click", (event) => {
             1
         );
 
-        if (saveIdeas()) showDetails(idea);
+        if (await saveIdeas()) showDetails(idea);
 
         return;
     }
@@ -671,7 +741,7 @@ document.addEventListener("click", (event) => {
     /* rating and memories */
 
     if (event.target.closest("#saveMemories")) {
-        saveMemoryDetails();
+        await saveMemoryDetails();
         return;
     }
 
@@ -697,7 +767,7 @@ document.addEventListener("click", (event) => {
             idea.completed = true;
             idea.completedAt = Date.now();
 
-            if (saveIdeas()) {
+            if (await saveIdeas()) {
                 render();
                 showDetails(idea);
                 showToast("Moved to Completed. Add memories whenever you're ready.");
@@ -708,7 +778,7 @@ document.addEventListener("click", (event) => {
             idea.completed = false;
             idea.completedAt = null;
 
-            if (saveIdeas()) {
+            if (await saveIdeas()) {
                 render();
                 showToast("Moved back to To Be Completed. Your saved memories are kept.");
             }
@@ -720,13 +790,13 @@ document.addEventListener("click", (event) => {
 
         case "delete":
             if (confirm(`Delete “${idea.title}”? This can't be undone.`)) {
-                ideas = ideas.filter(
-                    (item) => item.id !== idea.id
-                );
-
-                if (saveIdeas()) {
+                ideas = ideas.filter((item) => item.id !== idea.id);
+                if (await deleteIdeaFromCloud(idea.id)) {
                     render();
-                    showToast("Idea deleted.");
+                    showToast("Idea deleted from the shared journal.");
+                } else {
+                    ideas.push(idea);
+                    render();
                 }
             }
             break;
@@ -747,3 +817,4 @@ document.addEventListener("change", (event) => {
 /* starting website */
 
 render();
+loadIdeas();

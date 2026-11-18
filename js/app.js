@@ -15,7 +15,7 @@ let isLoading = true;
 let supabaseClient;
 
 const fields = [
-    "title", "location", "date", "time", "cost",
+    "title", "location", "date", "time", "cost", "creator",
     "description", "bring", "notes"
 ];
 
@@ -25,6 +25,7 @@ const fieldIds = {
     date: "ideaDate",
     time: "ideaTime",
     cost: "ideaCost",
+    creator: "ideaCreator",
     description: "ideaDescription",
     bring: "ideaBring",
     notes: "ideaNotes"
@@ -38,6 +39,7 @@ function normaliseIdea(idea) {
         date: idea.date || "",
         time: idea.time || "",
         cost: idea.cost ?? "",
+        creator: idea.creator || "",
         bring: idea.bring || "",
         notes: idea.notes || "",
         memoryNotes: idea.memoryNotes || "",
@@ -244,7 +246,8 @@ function dateMeta(idea) {
     const metadata = [
         ["⌖", idea.location],
         ["◷", when],
-        ["£", money(idea.cost)]
+        ["£", money(idea.cost)],
+        ["✎", idea.creator ? `Suggested by ${idea.creator}` : ""]
     ];
 
     return metadata
@@ -428,6 +431,7 @@ function showDetails(idea) {
         date: "Planned date",
         time: "Start time",
         cost: "Estimated cost",
+        creator: "Suggested by",
         description: "Description",
         bring: "Things to bring",
         notes: "Planning notes"
@@ -438,6 +442,7 @@ function showDetails(idea) {
         date: displayDate(idea.date),
         time: idea.time,
         cost: money(idea.cost),
+        creator: idea.creator,
         description: idea.description,
         bring: idea.bring,
         notes: idea.notes
@@ -655,6 +660,13 @@ form.addEventListener("submit", async (event) => {
 
     $("#ideaTitle").setCustomValidity("");
 
+    if (!["Emily", "Ardell"].includes($("#ideaCreator").value)) {
+        $("#ideaCreator").setCustomValidity("Please choose Emily or Ardell.");
+        $("#ideaCreator").reportValidity();
+        return;
+    }
+    $("#ideaCreator").setCustomValidity("");
+
     const id = $("#ideaId").value;
 
     const existing = ideas.find(
@@ -711,6 +723,10 @@ form.addEventListener("submit", async (event) => {
 
 $("#ideaTitle").addEventListener("input", () => {
     $("#ideaTitle").setCustomValidity("");
+});
+
+$("#ideaCreator").addEventListener("change", () => {
+    $("#ideaCreator").setCustomValidity("");
 });
 
 /* date note actions and other memory shits */

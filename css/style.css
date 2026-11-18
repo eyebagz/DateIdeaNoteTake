@@ -1246,3 +1246,14 @@ a { color: inherit; text-decoration: none; }
         justify-self: center;
     }
 }
+
+
+/* Shared Supabase connection indicator */
+.connection-status {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-top: 7px; font-size: 0.72rem; color: #66736d;
+}
+.connection-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #c69b45; display: inline-block; }
+.connection-status[data-state="connected"]::before { background: #3b9871; }
+.connection-status[data-state="error"] { color: #a34e45; }
+.connection-status[data-state="error"]::before { background: #b95d51; }

@@ -623,7 +623,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 .paper-dialog input:not([type=hidden]),
-.paper-dialog textarea {
+.paper-dialog textarea,
+.paper-dialog select {
   width: 100%;
   min-width: 0;
   padding: 11px 12px;
@@ -640,7 +641,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 .paper-dialog input:focus,
-.paper-dialog textarea:focus {
+.paper-dialog textarea:focus,
+.paper-dialog select:focus {
   outline: 2px solid rgba(78,112,108,.35);
   outline-offset: 2px;
 }
@@ -993,7 +995,8 @@ a { color: inherit; text-decoration: none; }
   }
 
   .paper-dialog input:not([type=hidden]),
-  .paper-dialog textarea {
+  .paper-dialog textarea,
+  .paper-dialog select {
     min-height: 44px;
     padding: 12px;
     font-size: 16px;
